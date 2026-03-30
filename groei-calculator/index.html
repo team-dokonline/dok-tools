@@ -263,6 +263,18 @@ body { font-family: 'Figtree', sans-serif; background: var(--light-green); color
         <input type="number" class="roi-input" id="roi-retention-pct" value="50" min="0" max="100" step="5" onchange="calc()" oninput="calc()">
       </div>
     </div>
+
+    <!-- WERK-INSCHATTING -->
+    <div class="roi-inputs" style="margin-top:0;">
+      <div class="roi-input-group">
+        <label class="roi-input-label">Nieuwe pagina's nodig</label>
+        <input type="number" class="roi-input" id="roi-new-pages" value="50" min="0" step="10" onchange="calc()" oninput="calc()">
+      </div>
+      <div class="roi-input-group">
+        <label class="roi-input-label">Bestaande pagina's te optimaliseren</label>
+        <input type="number" class="roi-input" id="roi-optimize-pages" value="20" min="0" step="5" onchange="calc()" oninput="calc()">
+      </div>
+    </div>
   </div>
 
   <!-- PHASE 1 -->
@@ -382,18 +394,15 @@ const scenarios = {
   accelerate: { outlines: 10, copy: 5, onpage: 8, link: 1500,
     copyOn: true, checkOn: true, placementOn: true, linkOn: true, transOn: false,
     outlinesOn: true, onpageOn: true,
-    p1Mult: 0.9,
-    rampPct: [0.55, 0.85, 1.0, 1.03, 1.06] },
+    p1Mult: 0.9 },
   growth: { outlines: 5, copy: 0, onpage: 5, link: 0,
     copyOn: false, checkOn: true, placementOn: false, linkOn: false, transOn: false,
     outlinesOn: true, onpageOn: true,
-    p1Mult: 0.95,
-    rampPct: [0.35, 0.60, 0.85, 1.0, 1.03] },
+    p1Mult: 0.95 },
   activate: { outlines: 3, copy: 0, onpage: 3, link: 0,
     copyOn: false, checkOn: false, placementOn: false, linkOn: false, transOn: false,
     outlinesOn: true, onpageOn: true,
-    p1Mult: 1.0,
-    rampPct: [0.20, 0.40, 0.65, 0.85, 1.0] },
+    p1Mult: 1.0 },
 };
 
 const hierarchy = ['activate', 'growth', 'accelerate'];
@@ -733,26 +742,68 @@ function calc() {
   const retentionPct = parseFloat(document.getElementById('roi-retention-pct').value) / 100 || 0;
   const retentionYears = clvMult;
 
-  // Get ramp percentages for active scenario
-  const activeTab = document.querySelector('.tab.active');
-  const scenarioName = activeTab ? activeTab.dataset.scenario : 'growth';
-  const rampPct = scenarios[scenarioName] ? scenarios[scenarioName].rampPct : scenarios.growth.rampPct;
+  // Work estimation inputs
+  const newPagesNeeded = parseInt(document.getElementById('roi-new-pages').value) || 0;
+  const optimizeNeeded = parseInt(document.getElementById('roi-optimize-pages').value) || 0;
 
-  // Target extra revenue per year at full potential (new customers only)
+  // Monthly throughput from phase 3
+  const newContentPerMonth = (on('p3-outlines-on') ? val('p3-outlines') : 0) + (on('p3-copy-on') ? val('p3-copy') : 0);
+  const optimizePerMonth = on('p3-onpage-on') ? val('p3-onpage') : 0;
+
+  // Constants
+  const AUDIT_MONTHS = 3;
+  const RANK_DELAY = 4;
+  const maintenanceFactor = 0.4;
   const targetExtraRev = currentRev * (targetMult - 1);
 
-  // New customer revenue per year (before CLV)
-  let newRevPerYear = [];
-  for (let y = 0; y < 5; y++) {
-    newRevPerYear.push(targetExtraRev * rampPct[y]);
+  // Doorgroei after plateau: scales with POST-plateau content velocity (40% of full)
+  const totalContentPerMonth = newContentPerMonth + optimizePerMonth;
+  const postPlateauContent = totalContentPerMonth * maintenanceFactor;
+  const doorgroeiPctYear = Math.min(postPlateauContent * 0.03, 0.30);
+
+  // Months until plateau is reached (all pages ranking)
+  const monthsNewDone = newContentPerMonth > 0 ? newPagesNeeded / newContentPerMonth : 999;
+  const monthsOptDone = optimizePerMonth > 0 ? optimizeNeeded / optimizePerMonth : 999;
+  const monthsWorkDone = Math.max(monthsNewDone, monthsOptDone);
+  const monthsToRanking = AUDIT_MONTHS + monthsWorkDone + RANK_DELAY;
+
+  // Calculate revenue per MONTH, then aggregate per year
+  function monthlyRevenue(absMonth) {
+    if (absMonth <= AUDIT_MONTHS) return 0;
+    const monthsSinceAudit = absMonth - AUDIT_MONTHS;
+    const monthsRanking = Math.max(0, monthsSinceAudit - RANK_DELAY);
+
+    // Pages ranking: new content + optimized (parallel, each capped at their target)
+    const newRanking = newContentPerMonth > 0 ? Math.min(monthsRanking * newContentPerMonth, newPagesNeeded) : 0;
+    const optRanking = optimizePerMonth > 0 ? Math.min(monthsRanking * optimizePerMonth, optimizeNeeded) : 0;
+    const totalTarget = newPagesNeeded + optimizeNeeded;
+    if (totalTarget === 0) return 0;
+
+    let pctOfTarget = (newRanking + optRanking) / totalTarget;
+
+    // Past plateau: doorgroei
+    if (pctOfTarget >= 1) {
+      const monthsPastPlateau = Math.max(0, absMonth - monthsToRanking);
+      pctOfTarget = 1 + doorgroeiPctYear * monthsPastPlateau / 12;
+    }
+
+    return targetExtraRev / 12 * pctOfTarget;
   }
 
-  // Apply CLV stacking: new customers from year X return in year X+1, X+2, etc.
-  // Each returning cohort = that year's new revenue × retention %
+  // Revenue per year (new customers from SEO growth)
+  let newRevPerYear = [];
+  for (let y = 0; y < 5; y++) {
+    let yearTotal = 0;
+    for (let m = 1; m <= 12; m++) {
+      yearTotal += monthlyRevenue(y * 12 + m);
+    }
+    newRevPerYear.push(yearTotal);
+  }
+
+  // CLV stacking
   let revContinue = [];
   for (let y = 0; y < 5; y++) {
-    let yearTotal = newRevPerYear[y]; // new customers this year
-    // Add returning customers from previous years
+    let yearTotal = newRevPerYear[y];
     for (let prev = 0; prev < y; prev++) {
       const yearsBack = y - prev;
       if (yearsBack < retentionYears) {
@@ -762,48 +813,49 @@ function calc() {
     revContinue.push(yearTotal);
   }
 
-  // Stop after year 1: only year 1 cohort returns, no new customers after year 1
+  // Stop scenario: stop investing after year 1, traffic decays
   const stopDecay = [1.0, 0.95, 0.85, 0.78, 0.72];
   let revStop = [];
   for (let y = 0; y < 5; y++) {
-    let stopYearTotal = newRevPerYear[0] * stopDecay[y]; // decaying base
-    // Returning customers from year 1 cohort only
+    let stopYearTotal = newRevPerYear[0] * stopDecay[y];
     if (y > 0 && y < retentionYears) {
       stopYearTotal += newRevPerYear[0] * retentionPct * stopDecay[y];
     }
     revStop.push(stopYearTotal);
   }
 
-  // Cumulative extra revenue over 5 years
+  // Totals
   const cumExtra5yr = revContinue.reduce((a, b) => a + b, 0);
   const cumExtra5yrStop = revStop.reduce((a, b) => a + b, 0);
 
-  // Investment
-  const investY1 = oneTime + (monthly * Math.min(currentMonths, 12));
+  // Investment: full during buildup, 60% after plateau
+  let totalInvestment5yr = oneTime;
+  for (let m = 1; m <= 60; m++) {
+    totalInvestment5yr += m <= monthsToRanking ? monthly : monthly * maintenanceFactor;
+  }
 
-  // Break-even: year 1 has ramp-up curve (slow start)
-  // Q1: 5%, Q2: 15%, Q3: 30%, Q4: 50% of year 1 revenue
-  const monthRamp = [0.01, 0.02, 0.02, 0.04, 0.05, 0.06, 0.08, 0.10, 0.12, 0.14, 0.16, 0.20];
-
+  // Break-even: month-by-month comparison
   let breakEvenMonth = 0;
   let cumRev = 0, cumInv = oneTime;
   for (let m = 1; m <= 60; m++) {
-    if (m <= 12) {
-      cumRev += revContinue[0] * monthRamp[m - 1];
-    } else {
-      const yearIdx = Math.min(Math.floor((m - 1) / 12), 4);
-      cumRev += revContinue[yearIdx] / 12;
-    }
-    cumInv += monthly;
+    const yIdx = Math.floor((m - 1) / 12);
+    cumRev += revContinue[yIdx] / 12;
+    cumInv += m <= monthsToRanking ? monthly : monthly * maintenanceFactor;
     if (cumRev >= cumInv && breakEvenMonth === 0) { breakEvenMonth = m; break; }
   }
 
-  // Cumulative ROI % per year
+  // Cumulative ROI % per year (with maintenance cost reduction after plateau)
   let cumROIPct = [];
   let runningRevenue = 0, runningInvest = 0;
   for (let y = 0; y < 5; y++) {
     runningRevenue += revContinue[y];
-    runningInvest += (y === 0) ? investY1 : monthly * 12;
+    // Year investment: sum monthly costs for this year
+    let yearInvest = (y === 0) ? oneTime : 0;
+    for (let m = 1; m <= 12; m++) {
+      const absMonth = y * 12 + m;
+      yearInvest += absMonth <= monthsToRanking ? monthly : monthly * maintenanceFactor;
+    }
+    runningInvest += yearInvest;
     cumROIPct.push(runningInvest > 0 ? ((runningRevenue - runningInvest) / runningInvest) * 100 : 0);
   }
 
