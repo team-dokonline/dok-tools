@@ -924,24 +924,11 @@ function generateClientLink() {
 
 
 // === CLIENT CONFIG (auto-generated) ===
-(function() {
-  // Set ROI inputs
-  var type = 'ecommerce';
-  if (type === 'ecommerce') {
-    document.getElementById('roi-current-rev').value = 27740;
-    document.getElementById('roi-growth').value = 3;
-  } else {
-    setClientType('b2b');
-    if ('' !== '') document.getElementById('b2b-leads').value = ;
-    if ('' !== '') document.getElementById('b2b-close').value = ;
-    if ('' !== '') document.getElementById('b2b-deal').value = ;
-    document.getElementById('b2b-growth').value = 3;
-  }
-  document.getElementById('roi-clv').value = 3;
-  document.getElementById('roi-retention-pct').value = 50;
-  // Re-init scenarios with new values and recalculate
-  initScenarios();
-})();
+document.getElementById('roi-current-rev').value = 27740;
+document.getElementById('roi-growth').value = 3;
+document.getElementById('roi-clv').value = 3;
+document.getElementById('roi-retention-pct').value = 50;
+initScenarios();
 setScenario('accelerate');
 </script>
 </body>
