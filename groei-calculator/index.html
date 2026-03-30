@@ -148,13 +148,22 @@ body { font-family: 'Figtree', sans-serif; background: var(--light-green); color
 
 .footer { max-width: 900px; margin: 0 auto; padding: 1rem 2rem 2rem; text-align: center; color: var(--gray-600); font-size: 0.7rem; }
 
+@media (max-width: 860px) {
+  .roi-grid { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 640px) {
   .hero h1 { font-size: 1.7rem; }
-  .roi-grid { grid-template-columns: 1fr; }
+  .roi-grid { grid-template-columns: 1fr 1fr; }
   .roi-inputs { grid-template-columns: 1fr; }
-  .roi-bars { height: 160px; }
+  .roi-bars { height: 160px; overflow: visible; }
+  .roi-bar { width: 36px; }
+  .roi-bar-label { font-size: 0.55rem; }
+  .roi-badge { font-size: 0.6rem; padding: 2px 6px; }
+  .roi-bar-year { font-size: 0.65rem; }
   .invest-summary { flex-direction: column; gap: 16px; }
   .invest-divider { width: 60px; height: 1px; }
+  .tab { font-size: 0.75rem; padding: 10px 8px; }
+  .tab small { font-size: 0.6rem; }
 }
 </style>
 </head>
